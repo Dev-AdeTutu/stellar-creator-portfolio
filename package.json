@@ -20,7 +20,8 @@
     "cli-checks": "pnpm run frontend:orbit-check && pnpm run backend:clippy",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:debug": "playwright test --debug"
+    "test:e2e:debug": "playwright test --debug",
+    "prepare": "husky"
   },
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
@@ -52,8 +53,8 @@
     "@radix-ui/react-toggle": "1.1.10",
     "@radix-ui/react-toggle-group": "1.1.11",
     "@radix-ui/react-tooltip": "1.2.8",
-    "@supabase/supabase-js": "^2.105.1",
     "@rolldown/binding-linux-x64-gnu": "^1.0.0-rc.17",
+    "@supabase/supabase-js": "^2.105.1",
     "@tanstack/react-query": "^5.28.0",
     "@vercel/analytics": "1.6.1",
     "autoprefixer": "^10.4.20",
@@ -92,6 +93,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.5",
     "eslint-config-next": "^16.2.4",
+    "husky": "^9.1.7",
     "jsdom": "^29.0.2",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
