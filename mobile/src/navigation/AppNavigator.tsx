@@ -26,6 +26,11 @@ import {
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 
+import { DashboardScreen }        from '../screens/DashboardScreen';
+import { ThemeSettingsScreen }    from '../screens/ThemeSettingsScreen';
+import { OfflineScreen }          from '../screens/OfflineScreen';
+import { PortfolioUploadScreen }  from '../screens/PortfolioUploadScreen';
+import { useTheme }               from '../theme/ThemeProvider';
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { ThemeSettingsScreen } from "../screens/ThemeSettingsScreen";
 import { OfflineScreen } from "../screens/OfflineScreen";
@@ -232,6 +237,10 @@ export function AppNavigator() {
             <ThemeSettingsScreen onBack={() => navigation.goBack()} />
           )}
         </Stack.Screen>
+        <Stack.Screen
+          name="PortfolioUpload"
+          options={{ animation: 'slide_from_bottom', headerShown: false }}
+          component={PortfolioUploadScreen}
 
         {/* ── Issue #542 — Creator Native Profile ───────────────────────── */}
         <Stack.Screen

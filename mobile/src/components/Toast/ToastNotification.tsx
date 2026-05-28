@@ -13,7 +13,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ToastMessage, ToastType } from '../types/toast';
+import { ToastMessage, ToastType } from '../../types/toast';
 
 interface ToastNotificationProps {
   toast: ToastMessage;
@@ -21,30 +21,38 @@ interface ToastNotificationProps {
 }
 
 const getToastStyles = (type: ToastType) => {
-  const baseStyles = {
+  const baseStyles: Record<
+    ToastType,
+    {
+      backgroundColor: string;
+      borderColor: string;
+      textColor: string;
+      icon: 'checkmark-circle' | 'close-circle' | 'warning' | 'information-circle';
+    }
+  > = {
     success: {
       backgroundColor: '#10b981',
       borderColor: '#059669',
       textColor: '#ffffff',
-      icon: 'checkmark-circle' as const,
+      icon: 'checkmark-circle',
     },
     error: {
       backgroundColor: '#ef4444',
       borderColor: '#dc2626',
       textColor: '#ffffff',
-      icon: 'close-circle' as const,
+      icon: 'close-circle',
     },
     warning: {
       backgroundColor: '#f59e0b',
       borderColor: '#d97706',
       textColor: '#ffffff',
-      icon: 'warning' as const,
+      icon: 'warning',
     },
     info: {
       backgroundColor: '#3b82f6',
       borderColor: '#2563eb',
       textColor: '#ffffff',
-      icon: 'information-circle' as const,
+      icon: 'information-circle',
     },
   };
 

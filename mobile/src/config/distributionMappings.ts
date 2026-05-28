@@ -29,7 +29,10 @@ export interface DistributionConfig {
   enableAnalytics: boolean;
 }
 
-const productionConfigs: Record<ReleaseChannel, Record<Platform, DistributionConfig>> = {
+const productionConfigs: Record<
+  ReleaseChannel,
+  Partial<Record<Platform, DistributionConfig>>
+> = {
   [ReleaseChannel.DEVELOPMENT]: {
     [Platform.IOS]: {
       channel: ReleaseChannel.DEVELOPMENT,
