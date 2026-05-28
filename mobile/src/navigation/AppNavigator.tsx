@@ -11,10 +11,11 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { DashboardScreen }      from '../screens/DashboardScreen';
-import { ThemeSettingsScreen }  from '../screens/ThemeSettingsScreen';
-import { OfflineScreen }        from '../screens/OfflineScreen';
-import { useTheme }             from '../theme/ThemeProvider';
+import { DashboardScreen }        from '../screens/DashboardScreen';
+import { ThemeSettingsScreen }    from '../screens/ThemeSettingsScreen';
+import { OfflineScreen }          from '../screens/OfflineScreen';
+import { PortfolioUploadScreen }  from '../screens/PortfolioUploadScreen';
+import { useTheme }               from '../theme/ThemeProvider';
 import { ScreenTransitions, GestureConfig } from './transitions';
 import { RootStackParamList, MainTabParamList } from '../types';
 import { FontSize, FontWeight } from '../theme/tokens';
@@ -131,6 +132,11 @@ export function AppNavigator() {
             <ThemeSettingsScreen onBack={() => navigation.goBack()} />
           )}
         </Stack.Screen>
+        <Stack.Screen
+          name="PortfolioUpload"
+          options={{ animation: 'slide_from_bottom', headerShown: false }}
+          component={PortfolioUploadScreen}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

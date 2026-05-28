@@ -4,16 +4,17 @@
  */
 
 import React, { useEffect } from 'react';
-import { registerRootComponent, Platform } from 'expo';
+import { registerRootComponent } from 'expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { NetworkProvider } from './offline/NetworkProvider';
 import { AppNavigator } from './navigation/AppNavigator';
 import { ToastProvider } from './context/ToastContext';
 import { ToastContainer } from './components/Toast/ToastContainer';
 import { SentryErrorTracker } from './services/SentryErrorTracker';
-import { DistributionConfigManager, Platform as DistPlatform } from './config/DistributionConfigManager';
+import { DistributionConfigManager } from './config/DistributionConfigManager';
+import { Platform as DistPlatform } from './config/distributionMappings';
 
 function App() {
   useEffect(() => {

@@ -28,7 +28,8 @@
       "package": "com.stellar.creatorportfolio",
       "permissions": [
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA"
       ]
     },
     "web": {
@@ -38,6 +39,20 @@
       "expo-localization",
       "@react-native-async-storage/async-storage",
       "expo-network",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Stellar needs access to your photo library to upload portfolio images.",
+          "cameraPermission": "Stellar needs camera access to capture and upload portfolio photos.",
+          "microphonePermission": "Stellar needs microphone access to record portfolio videos."
+        }
+      ],
+      [
+        "expo-document-picker",
+        {
+          "iCloudContainerEnvironment": "Production"
+        }
+      ],
       [
         "expo-build-properties",
         {

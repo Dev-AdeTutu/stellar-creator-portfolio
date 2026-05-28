@@ -133,8 +133,8 @@ export function ValidatedInput({
         ]}
         placeholderTextColor={colors.textTertiary}
         accessibilityLabel={label}
-        accessibilityRequired={required}
-        accessibilityInvalid={showError}
+        aria-required={required}
+        aria-invalid={showError}
       />
       {showError && errorText && (
         <Text style={[styles.error, { color: colors.error }]} accessibilityLiveRegion="polite">

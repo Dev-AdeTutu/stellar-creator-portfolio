@@ -74,6 +74,7 @@ export type RootStackParamList = {
   MainTabs: undefined;
   Dashboard: { period?: AnalyticsPeriod };
   LanguageSettings: undefined;
+  PortfolioUpload: undefined;
 };
 
 export type MainTabParamList = {
@@ -83,3 +84,61 @@ export type MainTabParamList = {
   Profile: undefined;
   Settings: undefined;
 };
+
+// ─── File Upload ──────────────────────────────────────────────────────────────
+
+export type UploadStatus =
+  | 'idle'
+  | 'pending'
+  | 'uploading'
+  | 'done'
+  | 'error'
+  | 'cancelled';
+
+export interface UploadFile {
+  /** Unique local ID */
+  id: string;
+  /** Display name */
+  name: string;
+  /** Local URI on device */
+  uri: string;
+  /** MIME type e.g. image/jpeg */
+  mimeType: string;
+  /** File size in bytes */
+  size: number;
+  /** 0-100 */
+  progress: number;
+  status: UploadStatus;
+  /** Remote URL after successful upload */
+  remoteUrl?: string;
+  /** Error message if status === 'error' */
+  error?: string;
+  /** Seconds elapsed for the upload */
+  elapsedSec?: number;
+  /** Upload start timestamp */
+  startedAt?: number;
+}
+
+export interface BucketUploadConfig {
+  /**
+   * Endpoint that returns a presigned URL for the given filename+mimeType.
+   * GET /api/upload/presign?filename=foo.jpg&mimeType=image%2Fjpeg
+   * Response: { url: string; publicUrl: string }
+   */
+  presignEndpoint: string;
+  /** Extra headers to send to YOUR server (auth tokens, etc.) */
+  authHeaders?: Record<string, string>;
+  /** Max concurrent uploads. Default 2. */
+  concurrency?: number;
+  /** Max retries per file. Default 3. */
+  maxRetries?: number;
+  /** Chunk size in bytes for multipart. Default 5 MB. */
+  chunkSize?: number;
+}
+
+export interface PresignResponse {
+  /** Presigned PUT URL pointing directly at the bucket */
+  url: string;
+  /** Public read URL of the uploaded file */
+  publicUrl: string;
+}

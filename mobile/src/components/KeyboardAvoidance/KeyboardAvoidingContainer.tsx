@@ -12,7 +12,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
-import { useKeyboardAvoidance } from '../hooks/useKeyboardAvoidance';
+import { useKeyboardAvoidance } from '../../hooks/useKeyboardAvoidance';
 
 interface KeyboardAvoidingContainerProps extends ViewProps {
   children: React.ReactNode;
