@@ -3,11 +3,11 @@
 export type UserRole = 'ADMIN' | 'CLIENT' | 'CREATOR' | 'USER';
 export type UserStatus = 'active' | 'suspended' | 'pending';
 export type BountyStatus = 'open' | 'in-progress' | 'completed' | 'cancelled' | 'flagged';
-export type ReportStatus = 'open' | 'resolved' | 'dismissed';
+export type ReportStatus = 'open' | 'resolved' | 'dismissed' | 'escalated' | 'removed';
 export type AuditAction =
   | 'user.suspend' | 'user.activate' | 'user.delete' | 'user.role_change'
   | 'bounty.approve' | 'bounty.flag' | 'bounty.delete'
-  | 'report.resolve' | 'report.dismiss'
+  | 'report.resolve' | 'report.dismiss' | 'report.remove' | 'report.escalate'
   | 'verification.approve' | 'verification.revoke';
 
 export interface AdminUser {
@@ -36,13 +36,26 @@ export interface AdminBounty {
 
 export interface ContentReport {
   id: string;
-  type: 'bounty' | 'profile' | 'message';
+  type: 'bounty' | 'profile' | 'message' | 'portfolio';
   targetId: string;
   targetTitle: string;
   reason: string;
   reportedBy: string;
+  /** Name or address of the creator who owns the content. */
+  creatorName: string;
+  /** Cumulative number of unique users who flagged this content. */
+  flagCount: number;
+  /**
+   * Content with 3+ flags is auto-blurred pending admin review.
+   * Admins see a warning badge so they can prioritise the queue.
+   */
+  isAutoBlurred: boolean;
   status: ReportStatus;
   createdAt: string;
+  /** Set when admin escalates to the legal team. */
+  escalateReason?: string;
+  /** Set when admin removes the content and sends a creator notification. */
+  removalReason?: string;
 }
 
 export interface AuditLog {
@@ -98,10 +111,46 @@ export const mockBounties: AdminBounty[] = [
 ];
 
 export const mockReports: ContentReport[] = [
-  { id: 'r1', type: 'bounty', targetId: 'b3', targetTitle: 'Social Media Campaign Content', reason: 'Suspicious payment terms — asking for work before payment', reportedBy: 'Alex Chen', status: 'open', createdAt: '2026-03-20' },
-  { id: 'r2', type: 'profile', targetId: 'u6', targetTitle: 'Priya Singh', reason: 'Fake portfolio samples, copied from other creators', reportedBy: 'Maya Patel', status: 'open', createdAt: '2026-03-19' },
-  { id: 'r3', type: 'message', targetId: 'msg-99', targetTitle: 'DM from Priya Singh', reason: 'Spam / unsolicited promotional messages', reportedBy: 'Jordan Maxwell', status: 'open', createdAt: '2026-03-21' },
-  { id: 'r4', type: 'bounty', targetId: 'b2', targetTitle: 'Technical Documentation for API', reason: 'Budget seems unrealistically low for scope', reportedBy: 'Sophia Rodriguez', status: 'resolved', createdAt: '2026-03-15' },
+  {
+    id: 'r1', type: 'bounty', targetId: 'b3',
+    targetTitle: 'Social Media Campaign Content',
+    reason: 'Suspicious payment terms — asking for work before payment',
+    reportedBy: 'Alex Chen', creatorName: 'Priya Singh',
+    flagCount: 5, isAutoBlurred: true,
+    status: 'open', createdAt: '2026-03-20',
+  },
+  {
+    id: 'r2', type: 'profile', targetId: 'u6',
+    targetTitle: 'Priya Singh — Profile',
+    reason: 'Fake portfolio samples, copied from other creators',
+    reportedBy: 'Maya Patel', creatorName: 'Priya Singh',
+    flagCount: 3, isAutoBlurred: true,
+    status: 'open', createdAt: '2026-03-19',
+  },
+  {
+    id: 'r3', type: 'message', targetId: 'msg-99',
+    targetTitle: 'DM from Priya Singh',
+    reason: 'Spam / unsolicited promotional messages',
+    reportedBy: 'Jordan Maxwell', creatorName: 'Priya Singh',
+    flagCount: 1, isAutoBlurred: false,
+    status: 'open', createdAt: '2026-03-21',
+  },
+  {
+    id: 'r4', type: 'bounty', targetId: 'b2',
+    targetTitle: 'Technical Documentation for API',
+    reason: 'Budget seems unrealistically low for scope',
+    reportedBy: 'Sophia Rodriguez', creatorName: 'Marcus Webb',
+    flagCount: 2, isAutoBlurred: false,
+    status: 'resolved', createdAt: '2026-03-15',
+  },
+  {
+    id: 'r5', type: 'portfolio', targetId: 'port-12',
+    targetTitle: 'Brand Identity Portfolio Item',
+    reason: 'NSFW imagery included in design samples',
+    reportedBy: 'Tom Nguyen', creatorName: 'Alex Chen',
+    flagCount: 4, isAutoBlurred: true,
+    status: 'open', createdAt: '2026-03-24',
+  },
 ];
 
 export const mockAuditLogs: AuditLog[] = [
