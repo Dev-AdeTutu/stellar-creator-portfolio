@@ -12,7 +12,7 @@ on:
         required: false
         default: 'http://localhost:3001'
       test:
-        description: 'Test to run (smoke|stress|soak|spike)'
+        description: 'Test to run (smoke|stress|soak|spike|sequence-collision)'
         required: false
         default: 'smoke'
 

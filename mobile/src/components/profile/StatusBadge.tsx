@@ -21,7 +21,7 @@ import {
 import { useTheme } from '../../theme/ThemeProvider';
 import { FontSize, FontWeight, Radius, Spacing } from '../../theme/tokens';
 
-export type BadgeType = 'premium' | 'verified' | 'expert' | 'top-rated' | 'new' | 'featured' | 'online';
+export type BadgeType = 'premium' | 'verified' | 'trusted' | 'elite' | 'expert' | 'top-rated' | 'new' | 'featured' | 'online';
 
 interface StatusBadgeProps extends Omit<ViewProps, 'children'> {
   type: BadgeType;
@@ -39,10 +39,22 @@ const BADGE_CONFIG: Record<BadgeType, { bg: string; fg: string; label: string; e
     emoji: '👑',
   },
   verified: {
-    bg: '#10b981',
+    bg: '#3b82f6',
     fg: '#ffffff',
     label: 'Verified',
     emoji: '✓',
+  },
+  trusted: {
+    bg: '#f59e0b',
+    fg: '#1f2937',
+    label: 'Trusted',
+    emoji: '⭐',
+  },
+  elite: {
+    bg: '#7c3aed',
+    fg: '#ffffff',
+    label: 'Elite',
+    emoji: '💎',
   },
   expert: {
     bg: '#8b5cf6',

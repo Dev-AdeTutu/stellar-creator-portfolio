@@ -93,29 +93,59 @@ enum Role {
   ADMIN
 }
 
+/// Tiered trust system for creator reputation
+enum VerificationTier {
+  NONE
+  VERIFIED  // KYC approved — blue checkmark ✓
+  TRUSTED   // 10+ bounties, avg rating ≥ 4.0 — gold star ⭐
+  ELITE     // 50+ bounties, avg rating ≥ 4.5, > 1 year active — diamond 💎
+}
+
 // Platform specific models
 model CreatorProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  displayName String
-  bio         String?
-  avatar      String?
-  discipline  String?
-  skills      String[]
-  portfolio   Json?
-  rating      Float    @default(0)
-  completedProjects Int @default(0)
-  verified    Boolean  @default(false)
-  githubUrl   String?
-  figmaUrl    String?
-  linkedinUrl String?
-  websiteUrl  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String           @id @default(cuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName       String
+  bio               String?
+  avatar            String?
+  discipline        String?
+  skills            String[]
+  portfolio         Json?
+  rating            Float            @default(0)
+  completedProjects Int              @default(0)
+  verified          Boolean          @default(false)
+  /// Tiered trust level — upgraded nightly by cron job
+  verificationTier  VerificationTier @default(NONE)
+  /// Timestamp when this account first became active (for Elite 1-year check)
+  firstActiveAt     DateTime?
+  githubUrl         String?
+  figmaUrl          String?
+  linkedinUrl       String?
+  websiteUrl        String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  tierHistory TierHistory[]
 
   @@index([userId])
   @@index([discipline])
+  @@index([verificationTier])
+}
+
+/// Immutable audit trail of tier changes
+model TierHistory {
+  id               String           @id @default(cuid())
+  creatorProfileId String
+  creatorProfile   CreatorProfile   @relation(fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  previousTier     VerificationTier
+  newTier          VerificationTier
+  reason           String?          // e.g. "nightly_cron: 10 bounties, rating 4.2"
+  triggeredBy      String           @default("system") // "system" | userId for manual overrides
+  createdAt        DateTime         @default(now())
+
+  @@index([creatorProfileId, createdAt])
+  @@index([newTier])
 }
 
 model ClientProfile {
@@ -507,23 +537,72 @@ model TransactionQueue {
 }
 
 model SorobanTransaction {
-  id        String   @id @default(cuid())
-  accountId String
-  contractId String
-  method    String
-  sequence  BigInt
-  txHash    String   @unique
-  status    String   @default("pending")
-  gasUsed   BigInt?
-  result    Json?
-  error     String?
+  id          String   @id @default(cuid())
+  accountId   String
+  contractId  String
+  method      String
+  sequence    BigInt
+  txHash      String   @unique
+  status      String   @default("pending")
+  gasUsed     BigInt?
+  result      Json?
+  error       String?
   submittedAt DateTime
   confirmedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([accountId])
   @@index([txHash])
   @@index([status])
   @@unique([accountId, sequence])
+}
+
+/// Pre-fetched sequence numbers to eliminate per-request RPC calls
+model SequencePool {
+  id         String   @id @default(cuid())
+  accountId  String
+  sequence   BigInt
+  reserved   Boolean  @default(false)
+  reservedAt DateTime?
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([accountId, reserved])
+  @@index([accountId, sequence])
+}
+
+// ── Feature Flags ─────────────────────────────────────────────────────────
+
+/// Lightweight feature-flag table for canary releases and A/B testing
+model FeatureFlag {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  enabled        Boolean  @default(false)
+  /// 0–100 percentage of users who see this feature
+  rolloutPercent Int      @default(0)
+  /// JSON segment descriptor e.g. {"platform":"ios","role":"CREATOR"}
+  userSegment    Json?
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  evaluations FeatureFlagEvaluation[]
+
+  @@index([name])
+  @@index([enabled])
+}
+
+/// Analytics log of flag evaluations for usage tracking
+model FeatureFlagEvaluation {
+  id        String      @id @default(cuid())
+  flagId    String
+  flag      FeatureFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  userId    String?
+  result    Boolean
+  context   Json?
+  createdAt DateTime    @default(now())
+
+  @@index([flagId, createdAt])
+  @@index([userId, createdAt])
 }
