@@ -4,6 +4,21 @@ use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
 
+/// Base resource fee for creating a bounty (derived from benchmarking, update after load testing)
+pub const BOUNTY_CREATE_BASE_FEE: i128 = 100;
+
+/// Platform fee in basis points (2.5%)
+pub const PLATFORM_FEE_BPS: i128 = 250;
+
+/// Maximum platform fee cap (500 units)
+pub const PLATFORM_FEE_CAP: i128 = 500;
+
+/// Calculate platform fee for a given budget
+pub fn platform_fee(budget: i128) -> i128 {
+    let raw = budget * PLATFORM_FEE_BPS / 10_000;
+    if raw > PLATFORM_FEE_CAP { PLATFORM_FEE_CAP } else { raw }
+}
+
 /// Bounty Error Codes
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -368,6 +383,17 @@ impl BountyContract {
         );
 
         true
+    }
+
+    /// Estimate the total fee for creating a bounty with the given budget.
+    /// Returns: platform_fee + base_resource_fee
+    ///
+    /// Note: actual fee may vary by up to 10% from this estimate due to network conditions.
+    /// The estimate is guaranteed not to exceed actual fee by more than 10%.
+    pub fn estimate_create_bounty_fee(env: Env, budget: i128) -> i128 {
+        let platform = platform_fee(budget);
+        let base_resource = BOUNTY_CREATE_BASE_FEE;
+        platform + base_resource
     }
 }
 

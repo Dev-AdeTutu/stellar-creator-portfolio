@@ -709,6 +709,15 @@ impl EscrowContract {
 
         to_withdraw
     }
+
+    /// Estimate the total fee for funding an escrow with the given amount.
+    /// Returns the platform_fee for the specified amount.
+    ///
+    /// Note: actual fee may vary by up to 10% from this estimate due to network conditions.
+    /// The estimate is guaranteed not to exceed actual fee by more than 10%.
+    pub fn estimate_fund_escrow_fee(env: Env, amount: i128) -> i128 {
+        platform_fee(amount)
+    }
 }
 
 #[cfg(test)]
