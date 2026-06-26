@@ -320,7 +320,7 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         // Get user's analytics data
         const user = ctx.user!;
-        
+
         // This would calculate real metrics from bounties, applications, etc.
         return {
           earnings: {
@@ -339,6 +339,115 @@ export const appRouter = router({
             pending: 5,
           },
         };
+      }),
+  }),
+
+  // Availability calendar — Issue #792
+  availability: router({
+    list: publicProcedure
+      .input(z.object({ creatorId: z.string(), month: z.date().optional() }))
+      .query(async ({ input }) => {
+        const month = input.month || new Date();
+        const startOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+        const endOfMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+
+        return await prisma.availability.findMany({
+          where: {
+            creatorId: input.creatorId,
+            date: { gte: startOfMonth, lte: endOfMonth },
+          },
+          orderBy: { date: 'asc' },
+        });
+      }),
+
+    set: protectedProcedure
+      .input(
+        z.object({
+          date: z.date(),
+          status: z.enum(['AVAILABLE', 'BUSY', 'UNAVAILABLE']),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const creatorProfile = await prisma.creatorProfile.findUnique({
+          where: { userId: ctx.user!.id },
+        });
+
+        if (!creatorProfile) {
+          throw new Error('Creator profile not found');
+        }
+
+        return await prisma.availability.upsert({
+          where: { creatorId_date: { creatorId: creatorProfile.id, date: new Date(input.date) } },
+          create: { creatorId: creatorProfile.id, date: new Date(input.date), status: input.status },
+          update: { status: input.status },
+        });
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ date: z.date() }))
+      .mutation(async ({ ctx, input }) => {
+        const creatorProfile = await prisma.creatorProfile.findUnique({
+          where: { userId: ctx.user!.id },
+        });
+
+        if (!creatorProfile) {
+          throw new Error('Creator profile not found');
+        }
+
+        return await prisma.availability.delete({
+          where: { creatorId_date: { creatorId: creatorProfile.id, date: new Date(input.date) } },
+        });
+      }),
+  }),
+
+  // Skill endorsements — Issue #793
+  endorsements: router({
+    endorse: protectedProcedure
+      .input(z.object({ creatorId: z.string(), skill: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        return await prisma.endorsement.upsert({
+          where: { endorserId_creatorId_skill: { endorserId: ctx.user!.id, creatorId: input.creatorId, skill: input.skill } },
+          create: { endorserId: ctx.user!.id, creatorId: input.creatorId, skill: input.skill },
+          update: { createdAt: new Date() },
+        });
+      }),
+
+    counts: publicProcedure
+      .input(z.object({ creatorId: z.string() }))
+      .query(async ({ input }) => {
+        const endorsements = await prisma.endorsement.groupBy({
+          by: ['skill'],
+          where: { creatorId: input.creatorId },
+          _count: { skill: true },
+          orderBy: { _count: { skill: 'desc' } },
+          take: 10,
+        });
+
+        return endorsements.map(e => ({ skill: e.skill, count: e._count.skill }));
+      }),
+
+    topSkills: publicProcedure
+      .input(z.object({ creatorId: z.string(), take: z.number().default(3) }))
+      .query(async ({ input }) => {
+        const endorsements = await prisma.endorsement.groupBy({
+          by: ['skill'],
+          where: { creatorId: input.creatorId },
+          _count: { skill: true },
+          orderBy: { _count: { skill: 'desc' } },
+          take: input.take,
+        });
+
+        return endorsements.map(e => e.skill);
+      }),
+
+    hasEndorsed: protectedProcedure
+      .input(z.object({ creatorId: z.string(), skill: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const endorsement = await prisma.endorsement.findUnique({
+          where: { endorserId_creatorId_skill: { endorserId: ctx.user!.id, creatorId: input.creatorId, skill: input.skill } },
+        });
+
+        return !!endorsement;
       }),
   }),
 });
