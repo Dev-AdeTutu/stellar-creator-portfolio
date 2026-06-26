@@ -71,6 +71,8 @@ model User {
   matchNotifications  MatchNotification[]
   auditLogs           AuditLog[]
   bountyTemplates     BountyTemplate[]
+  apiKeys             ApiKey[]
+  endorsementsGiven   Endorsement[] @relation(name: "endorsements_given")
 
   @@index([email])
 }
@@ -127,7 +129,9 @@ model CreatorProfile {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
-  tierHistory TierHistory[]
+  tierHistory    TierHistory[]
+  availabilities Availability[]
+  endorsements   Endorsement[]
 
   @@index([userId])
   @@index([discipline])
@@ -627,4 +631,73 @@ model BountyTemplate {
 
   @@index([category])
   @@index([createdByUserId])
+}
+
+// ── API Keys for Third-Party Integrations — Issue #790 ───────────────────────
+
+/// API keys for GraphQL and external integrations
+model ApiKey {
+  id              String   @id @default(cuid())
+  key             String   @unique // sk_<32 hex>
+  secretHash      String   // SHA-256 hashed secret
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String?  // optional friendly name
+  active          Boolean  @default(true)
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([active, expiresAt])
+}
+
+/// Rate limit tracking for API keys (per-minute sliding window)
+model ApiKeyUsage {
+  id        String   @id @default(cuid())
+  apiKeyId  String
+  timestamp DateTime @default(now())
+  queryPath String   // GraphQL operation name or tRPC path
+
+  @@index([apiKeyId, timestamp])
+}
+
+// ── Creator Availability Calendar — Issue #792 ──────────────────────────────
+
+/// Creator availability schedule for booking system
+model Availability {
+  id        String   @id @default(cuid())
+  creatorId String
+  creator   CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  date      DateTime // Date in YYYY-MM-DD format (time is ignored)
+  status    AvailabilityStatus @default(AVAILABLE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([creatorId, date])
+  @@index([creatorId, date])
+  @@index([creatorId, status])
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  BUSY
+  UNAVAILABLE
+}
+
+// ── Skill Endorsements — Issue #793 ────────────────────────────────────────
+
+/// Skill endorsements from other users
+model Endorsement {
+  id        String   @id @default(cuid())
+  endorserId String
+  endorser  User     @relation(name: "endorsements_given", fields: [endorserId], references: [id], onDelete: Cascade)
+  creatorId String
+  creator   CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  skill     String   // Skill name being endorsed
+  createdAt DateTime @default(now())
+
+  @@unique([endorserId, creatorId, skill])
+  @@index([creatorId, skill])
+  @@index([creatorId, createdAt])
 }
