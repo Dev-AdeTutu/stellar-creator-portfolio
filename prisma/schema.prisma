@@ -70,6 +70,7 @@ model User {
   onboardingStep        Int       @default(0)
   onboardingCompletedAt DateTime?
   onboardingData        Json?
+  apiKeys               ApiKey[]
   matchFeedback       MatchFeedback[]
   matchNotifications  MatchNotification[]
   auditLogs           AuditLog[]
@@ -170,6 +171,23 @@ model ClientProfile {
   updatedAt   DateTime @updatedAt
 
   @@index([userId])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyHash    String    @unique
+  name       String
+  scopes     String[]
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([keyHash])
 }
 
 model Bounty {
