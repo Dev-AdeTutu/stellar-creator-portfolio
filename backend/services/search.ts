@@ -22,6 +22,8 @@
 
 import { Client as ElasticClient } from '@elastic/elasticsearch';
 import type { SearchHit } from '@elastic/elasticsearch/lib/api/types';
+import { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -432,10 +434,23 @@ export async function hybridSearch(
 
   // ── 3. Run both queries in parallel ──────────────────────────────────────
 
-  const [lexicalResult, semanticResult] = await Promise.all([
-    lexicalPromise,
-    semanticPromise,
-  ]);
+  let lexicalResult: Awaited<typeof lexicalPromise>;
+  let semanticResult: Awaited<typeof semanticPromise>;
+  try {
+    [lexicalResult, semanticResult] = await Promise.all([
+      lexicalPromise,
+      semanticPromise,
+    ]);
+  } catch (err) {
+    // Elasticsearch unreachable — serve relevant results from Postgres FTS
+    // instead of failing the request.
+    if (isConnectionError(err)) {
+      // Swallow the unhandled rejection from whichever promise didn't settle.
+      void Promise.allSettled([lexicalPromise, semanticPromise]);
+      return postgresFtsSearch(options);
+    }
+    throw err;
+  }
 
   // ── 4. Reciprocal Rank Fusion ─────────────────────────────────────────────
 
@@ -521,6 +536,95 @@ export async function hybridSearch(
   });
 
   return merged.slice(0, limit);
+}
+
+// ── Postgres full-text fallback ────────────────────────────────────────────────
+
+/** True if the error looks like Elasticsearch being unreachable. */
+function isConnectionError(err: unknown): boolean {
+  const message =
+    err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  const name = (err as { name?: string })?.name ?? '';
+  return (
+    name === 'ConnectionError' ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('ENOTFOUND') ||
+    message.includes('ETIMEDOUT') ||
+    message.includes('connect')
+  );
+}
+
+/** Build a prefix tsquery: "rust dev" → "rust:* & dev:*" for autocomplete. */
+function toPrefixTsQuery(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((term) => term.replace(/[^\p{L}\p{N}]/gu, ''))
+    .filter(Boolean)
+    .map((term) => `${term}:*`)
+    .join(' & ');
+}
+
+interface CreatorFtsRow {
+  id: string;
+  displayName: string;
+  discipline: string | null;
+  skills: string[];
+  verified: boolean;
+  rating: number;
+  completedProjects: number;
+  rank: number;
+}
+
+/**
+ * Postgres full-text search over CreatorProfile.fts (GIN-indexed tsvector) with
+ * prefix matching for autocomplete and pg_trgm similarity for typo tolerance.
+ * Case-insensitive. Used as the fallback when Elasticsearch is unreachable.
+ */
+export async function postgresFtsSearch(
+  options: HybridSearchOptions,
+): Promise<SearchResult[]> {
+  const { query, limit = 10, discipline, skills, verifiedOnly = false } = options;
+  if (!query.trim()) return [];
+
+  const tsquery = toPrefixTsQuery(query);
+  if (!tsquery) return [];
+
+  const filters: Prisma.Sql[] = [];
+  if (discipline) filters.push(Prisma.sql`"discipline" = ${discipline}`);
+  if (skills?.length) filters.push(Prisma.sql`"skills" @> ${skills}`);
+  if (verifiedOnly) filters.push(Prisma.sql`"verified" = true`);
+  const whereExtra = filters.length
+    ? Prisma.sql`AND ${Prisma.join(filters, ' AND ')}`
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<CreatorFtsRow[]>`
+    SELECT "id", "displayName", "discipline", "skills", "verified", "rating",
+           "completedProjects",
+           ts_rank("fts", to_tsquery('english', ${tsquery})) AS rank
+    FROM "CreatorProfile"
+    WHERE ("fts" @@ to_tsquery('english', ${tsquery})
+           OR similarity("displayName", ${query}) > 0.3)
+      ${whereExtra}
+    ORDER BY rank DESC, "verified" DESC, "rating" DESC
+    LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({
+    id: row.id,
+    displayName: row.displayName,
+    discipline: row.discipline,
+    skills: row.skills ?? [],
+    verified: row.verified,
+    rating: Number(row.rating),
+    completedProjects: row.completedProjects,
+    score: Number(row.rank),
+    scoreBreakdown: {
+      lexical: Number(row.rank),
+      semantic: 0,
+      rrf: Number(row.rank),
+    },
+  }));
 }
 
 // ── Cluster health ────────────────────────────────────────────────────────────
