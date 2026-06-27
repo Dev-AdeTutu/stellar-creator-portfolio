@@ -2,6 +2,7 @@ import { fetchCreatorCore, fetchCreatorSocial } from '@/lib/streaming/chunk-data
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import { HireMeDialog } from '@/components/creators/hire-me-dialog';
+import { SocialShare } from '@/components/common/social-share';
 
 export async function CreatorHeroSection({ id }: { id: string }) {
   const [creator, social] = await Promise.all([fetchCreatorCore(id), fetchCreatorSocial(id)]);
@@ -38,6 +39,12 @@ export async function CreatorHeroSection({ id }: { id: string }) {
               Twitter
             </a>
             <HireMeDialog creatorId={id} creatorName={social.name} skills={creator.skills} />
+            <SocialShare
+              title={`Check out ${social.name} on Stellar Creators`}
+              description={social.title}
+              url={`/creators/${id}`}
+              hashtags={['StellarCreators', 'Web3', 'Portfolio']}
+            />
           </div>
         </div>
       </div>

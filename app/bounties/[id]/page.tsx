@@ -7,6 +7,7 @@ import { BountyScopeEditor } from './bounty-scope-editor'
 import { MilestoneTrackerClient } from './milestone-tracker-client'
 import { BountyMilestoneProgress } from './bounty-milestone-progress'
 import { Badge } from '@/components/ui/badge'
+import { BountyShareButton } from './bounty-share-client'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -36,7 +37,15 @@ export default async function BountyDetailPage({ params }: Props) {
               </Badge>
             ))}
           </div>
-          <h1 className="text-3xl font-bold tracking-tight mb-2">{bounty.title}</h1>
+          <div className="flex items-start justify-between gap-4">
+            <h1 className="text-3xl font-bold tracking-tight mb-2">{bounty.title}</h1>
+            <BountyShareButton
+              title={bounty.title}
+              budget={bounty.budget}
+              currency={bounty.currency}
+              bountyId={bounty.id}
+            />
+          </div>
           <p className="text-muted-foreground">{bounty.description}</p>
         </div>
 

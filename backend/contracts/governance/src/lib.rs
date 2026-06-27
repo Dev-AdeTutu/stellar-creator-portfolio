@@ -2,6 +2,8 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol};
 
+const DEFAULT_TIMELOCK_SECONDS: u64 = 48 * 60 * 60; // 48 hours
+
 /// Governance Configuration
 #[contracttype]
 pub struct GovernanceConfig {
@@ -473,5 +475,113 @@ impl GovernanceContract {
             .persistent()
             .get::<(Symbol, u64), ExecutionTimelock>(&tl_key)
             .expect("Proposal not queued")
+    }
+
+    // ── Issue #770: Guardian veto & configurable timelock ────────────────
+
+    /// Add a guardian address that can veto queued proposals.
+    /// Only the admin can add guardians.
+    pub fn add_guardian(env: Env, admin: Address, guardian: Address) {
+        admin.require_auth();
+        let config = Self::get_config(env.clone());
+        assert_eq!(admin, config.admin_address, "Only admin can add guardians");
+
+        let guardian_key = (Symbol::new(&env, "guardian"), guardian.clone());
+        env.storage().persistent().set(&guardian_key, &true);
+
+        let ledger_ttl = 30 * 24 * 3600 / 5;
+        env.storage().persistent().extend_ttl(&guardian_key, 4096, ledger_ttl);
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("guard_add")),
+            (guardian,),
+        );
+    }
+
+    /// Remove a guardian. Only the admin can remove guardians.
+    pub fn remove_guardian(env: Env, admin: Address, guardian: Address) {
+        admin.require_auth();
+        let config = Self::get_config(env.clone());
+        assert_eq!(admin, config.admin_address, "Only admin can remove guardians");
+
+        let guardian_key = (Symbol::new(&env, "guardian"), guardian.clone());
+        env.storage().persistent().remove(&guardian_key);
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("guard_rm")),
+            (guardian,),
+        );
+    }
+
+    /// Check if an address is a guardian.
+    pub fn is_guardian(env: Env, addr: Address) -> bool {
+        let guardian_key = (Symbol::new(&env, "guardian"), addr);
+        env.storage()
+            .persistent()
+            .get::<(Symbol, Address), bool>(&guardian_key)
+            .unwrap_or(false)
+    }
+
+    /// Set the default timelock duration (in seconds). Only admin can change.
+    pub fn set_timelock_duration(env: Env, admin: Address, duration_secs: u64) {
+        admin.require_auth();
+        let config = Self::get_config(env.clone());
+        assert_eq!(admin, config.admin_address, "Only admin can set timelock duration");
+
+        let key = Symbol::new(&env, "tl_duration");
+        env.storage().persistent().set(&key, &duration_secs);
+
+        let ledger_ttl = 30 * 24 * 3600 / 5;
+        env.storage().persistent().extend_ttl(&key, 4096, ledger_ttl);
+    }
+
+    /// Get the current timelock duration. Defaults to 48 hours.
+    pub fn get_timelock_duration(env: Env) -> u64 {
+        let key = Symbol::new(&env, "tl_duration");
+        env.storage()
+            .persistent()
+            .get::<Symbol, u64>(&key)
+            .unwrap_or(DEFAULT_TIMELOCK_SECONDS)
+    }
+
+    /// Queue an approved proposal using the configured default timelock.
+    pub fn queue_execution_default(env: Env, proposal_id: u64) {
+        let duration = Self::get_timelock_duration(env.clone());
+        Self::queue_execution(env, proposal_id, duration);
+    }
+
+    /// Veto a queued proposal. Only guardians can veto.
+    /// Removes the timelock and marks the proposal as rejected.
+    pub fn veto_proposal(env: Env, guardian: Address, proposal_id: u64) {
+        guardian.require_auth();
+        assert!(
+            Self::is_guardian(env.clone(), guardian.clone()),
+            "Only guardians can veto proposals"
+        );
+
+        let tl_key = (Symbol::new(&env, "timelock"), proposal_id);
+        assert!(
+            env.storage().persistent().has(&tl_key),
+            "Proposal is not queued for execution"
+        );
+
+        let proposal_key = (Symbol::new(&env, "proposal"), proposal_id);
+        let mut proposal = env
+            .storage()
+            .persistent()
+            .get::<(Symbol, u64), Proposal>(&proposal_key)
+            .expect("Proposal not found");
+
+        let approved = String::from_str(&env, "approved");
+        assert!(proposal.status == approved, "Proposal is not in approved status");
+
+        proposal.status = String::from_str(&env, "vetoed");
+        env.storage().persistent().set(&proposal_key, &proposal);
+        env.storage().persistent().remove(&tl_key);
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("vetoed")),
+            (proposal_id, guardian),
+        );
     }
 }
