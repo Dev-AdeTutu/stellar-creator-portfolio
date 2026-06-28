@@ -584,4 +584,21 @@ impl GovernanceContract {
             (proposal_id, guardian),
         );
     }
+
+    // ── Issue #732: Contract upgrade mechanism ────────────────────────────────
+
+    /// Upgrade the contract WASM. Only the governance admin multisig may call this.
+    /// Emits an `upgraded` event with the new wasm hash.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        admin.require_auth();
+        let config = Self::get_config(env.clone());
+        assert_eq!(admin, config.admin_address, "unauthorized");
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("upgraded")),
+            new_wasm_hash,
+        );
+    }
 }

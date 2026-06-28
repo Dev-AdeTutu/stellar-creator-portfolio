@@ -233,6 +233,27 @@ impl IdentityContract {
             .map(|a| a.tier)
             .unwrap_or(VerificationTier::None)
     }
+
+    // ── Issue #732: Contract upgrade mechanism ────────────────────────────────
+
+    /// Upgrade the contract WASM. Only the governance multisig (admin) may call this.
+    /// Emits an `upgraded` event with the new wasm hash.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        assert_eq!(admin, stored_admin, "unauthorized");
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("upgraded")),
+            new_wasm_hash,
+        );
+    }
 }
 
 #[cfg(test)]

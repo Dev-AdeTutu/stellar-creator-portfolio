@@ -36,6 +36,10 @@ pub const PLATFORM_FEE_BPS: i128 = 250;
 /// Maximum platform fee in token units (500 USDC-equivalent).
 pub const PLATFORM_FEE_CAP: i128 = 500;
 
+/// Dispute timeout: 30 days in ledger seconds (#731).
+/// After this window anyone can call `resolve_expired_dispute` for a 50/50 split.
+pub const DISPUTE_TIMEOUT_SECS: u64 = 30 * 24 * 3600;
+
 /// Compute the platform fee for a given gross amount.
 /// Fee = min(amount * 250 / 10_000, 500)
 pub fn platform_fee(amount: i128) -> i128 {
@@ -81,6 +85,8 @@ pub enum DataKey {
     MilestoneTotal(u64),
     MilestoneReleasedCount(u64),
     MilestoneReleasedAmount(u64),
+    DisputeExpiry(u64),
+    DisputeSplit,
 }
 
 // ── Issue #631: Yield Farming for Unwithdrawn Escrow Funds ───────────────────
@@ -328,10 +334,16 @@ impl EscrowContract {
         escrow.status = EscrowStatus::Disputed;
         env.storage().persistent().set(&key, &escrow);
 
+        // #731: record when this dispute expires (created_at + 30 days)
+        let expires_at = env.ledger().timestamp() + DISPUTE_TIMEOUT_SECS;
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeExpiry(escrow_id), &expires_at);
+
         // Emit escrow_disputed event for indexers
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("disputed")),
-            (escrow_id, escrow.bounty_id, authorizer),
+            (escrow_id, escrow.bounty_id, authorizer, expires_at),
         );
 
         true
@@ -387,6 +399,85 @@ impl EscrowContract {
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("resolved")),
             (escrow_id, escrow.bounty_id, recipient, release_to_payee),
+        );
+
+        true
+    }
+
+    // ── Issue #731: Dispute resolution timeout ────────────────────────────────
+
+    /// Configure the default auto-resolution split in basis points paid to the
+    /// payee. 5000 = 50/50. Only the platform admin may call this.
+    pub fn set_dispute_split(env: Env, admin: Address, payee_bps: u32) {
+        admin.require_auth();
+        let admin_key = Symbol::new(&env, "platform_admin");
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&admin_key)
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "Only platform admin can set dispute split");
+        assert!(payee_bps <= 10_000, "Split must be <= 10000 bps");
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeSplit, &payee_bps);
+    }
+
+    /// Auto-resolve a stale dispute after its expiry window has elapsed.
+    /// Anyone may call this — no auth required.
+    /// Default resolution: 50/50 split (configurable via `set_dispute_split`).
+    ///
+    /// Panics if:
+    ///   - escrow is not in Disputed state
+    ///   - the expiry window has not yet elapsed
+    pub fn resolve_expired_dispute(env: Env, escrow_id: u64) -> bool {
+        let key = (Symbol::new(&env, "escrow"), escrow_id);
+        let mut escrow = env
+            .storage()
+            .persistent()
+            .get::<(Symbol, u64), EscrowAccount>(&key)
+            .expect("Escrow not found");
+
+        assert!(escrow.status == EscrowStatus::Disputed, "Escrow is not disputed");
+
+        let expires_at: u64 = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u64>(&DataKey::DisputeExpiry(escrow_id))
+            .expect("No dispute expiry recorded");
+
+        assert!(
+            env.ledger().timestamp() >= expires_at,
+            "Dispute has not expired yet"
+        );
+
+        // Determine split: default 50/50 unless governance has set otherwise
+        let payee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u32>(&DataKey::DisputeSplit)
+            .unwrap_or(5_000); // 50% to payee
+
+        let payee_amount = escrow.amount * (payee_bps as i128) / 10_000;
+        let payer_amount = escrow.amount - payee_amount;
+
+        let token = TokenClient::new(&env, &escrow.token);
+
+        if payee_amount > 0 {
+            token.transfer(&env.current_contract_address(), &escrow.payee, &payee_amount);
+        }
+        if payer_amount > 0 {
+            token.transfer(&env.current_contract_address(), &escrow.payer, &payer_amount);
+        }
+
+        escrow.status = EscrowStatus::Refunded; // closest semantic: funds dispersed
+        escrow.released_at = Some(env.ledger().timestamp());
+        env.storage().persistent().set(&key, &escrow);
+
+        // Emit dispute_auto_resolved event
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("auto_res")),
+            (escrow_id, escrow.bounty_id, payee_amount, payer_amount),
         );
 
         true
@@ -847,6 +938,28 @@ impl EscrowContract {
     pub fn estimate_fund_escrow_fee(env: Env, amount: i128) -> i128 {
         platform_fee(amount)
     }
+
+    // ── Issue #732: Contract upgrade mechanism ────────────────────────────────
+
+    /// Upgrade the contract WASM. Only the governance multisig (platform admin)
+    /// may call this. Emits an `upgraded` event with the new wasm hash.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        admin.require_auth();
+        let admin_key = Symbol::new(&env, "platform_admin");
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&admin_key)
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "unauthorized");
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("upgraded")),
+            new_wasm_hash,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1165,6 +1278,50 @@ mod tests {
 
         let id = contract.deposit(&1u64, &payer, &payee, &1000, &token, &ReleaseCondition::OnCompletion);
         contract.resolve_dispute(&admin, &id, &true); // not disputed yet
+    }
+
+    // ── dispute expiry (#731) ─────────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "Dispute has not expired yet")]
+    fn resolve_expired_dispute_panics_before_expiry() {
+        let env = Env::default();
+        let (_, token, payer, payee) = setup(&env, 1000);
+        let contract = EscrowContractClient::new(&env, &env.register_contract(None, EscrowContract));
+
+        let id = contract.deposit(&1u64, &payer, &payee, &1000, &token, &ReleaseCondition::OnCompletion);
+        contract.dispute_escrow(&payer, &id);
+        // Timestamp is still 0 — expiry has not elapsed
+        contract.resolve_expired_dispute(&id);
+    }
+
+    #[test]
+    fn resolve_expired_dispute_succeeds_after_expiry() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, token, payer, payee) = setup(&env, 1000);
+        let cid = env.register_contract(None, EscrowContract);
+        let contract = EscrowContractClient::new(&env, &cid);
+        let tc = soroban_sdk::token::Client::new(&env, &token);
+
+        let id = contract.deposit(&1u64, &payer, &payee, &1000, &token, &ReleaseCondition::OnCompletion);
+        contract.dispute_escrow(&payer, &id);
+
+        // Advance ledger time past the 30-day window
+        env.ledger().set_timestamp(DISPUTE_TIMEOUT_SECS + 1);
+        contract.resolve_expired_dispute(&id);
+
+        // 50/50 split: net escrow = 975 (fee already deducted on deposit)
+        // payee gets 487, payer gets 488 (integer division)
+        let payee_bal = tc.balance(&payee);
+        let payer_bal = tc.balance(&payer);
+        assert!(payee_bal > 0, "payee should receive funds");
+        assert!(payer_bal > 0, "payer should receive funds");
+        assert_eq!(payee_bal + payer_bal, 975, "total must equal net escrow amount");
+
+        let escrow = contract.get_escrow(&id);
+        assert!(escrow.status == EscrowStatus::Refunded);
+        assert!(escrow.released_at.is_some());
     }
 
     #[test]

@@ -468,6 +468,44 @@ impl BountyContract {
         let base_resource = BOUNTY_CREATE_BASE_FEE;
         platform + base_resource
     }
+
+    // ── Issue #732: Contract upgrade mechanism ────────────────────────────────
+
+    /// Upgrade the contract WASM. Only the governance multisig (contract admin)
+    /// may call this. Emits an `upgraded` event with the new wasm hash.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        admin.require_auth();
+        let admin_key = DataKey::EscrowContract; // reuse admin storage slot via escrow contract key?
+        // Bounty contract uses a standalone admin key
+        let stored_admin_key = Symbol::new(&env, "bounty_admin");
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&stored_admin_key)
+            .expect("Contract admin not set");
+        assert_eq!(admin, stored_admin, "unauthorized");
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("upgraded")),
+            new_wasm_hash,
+        );
+    }
+
+    /// Set the bounty contract admin (governance multisig). Can only be called once.
+    pub fn set_admin(env: Env, admin: Address) {
+        admin.require_auth();
+        let stored_admin_key = Symbol::new(&env, "bounty_admin");
+        assert!(
+            env.storage()
+                .persistent()
+                .get::<Symbol, Address>(&stored_admin_key)
+                .is_none(),
+            "Admin already set"
+        );
+        env.storage().persistent().set(&stored_admin_key, &admin);
+    }
 }
 
 #[cfg(test)]

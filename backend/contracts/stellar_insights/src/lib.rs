@@ -453,6 +453,22 @@ impl StellarInsights {
             .get(&DataKey::Reputation(creator))
             .expect("Creator reputation not found")
     }
+
+    // ── Issue #732: Contract upgrade mechanism ────────────────────────────────
+
+    /// Upgrade the contract WASM. Only the governance multisig (admin) may call this.
+    /// Emits an `upgraded` event with the new wasm hash.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        admin.require_auth();
+        Self::require_admin(&env, &admin);
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("upgraded")),
+            new_wasm_hash,
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

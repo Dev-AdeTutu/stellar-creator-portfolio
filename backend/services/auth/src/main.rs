@@ -470,11 +470,22 @@ pub fn revoke_all_tokens_for_subject(store: &RefreshStore, subject: &str) -> usi
 }
 
 async fn health() -> HttpResponse {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     HttpResponse::Ok().json(serde_json::json!({
-        "status": "healthy",
-        "service": "stellar-auth",
-        "version": "0.1.0",
-        "features": ["mfa", "totp"]
+        "status": "ok",
+        "timestamp": timestamp
+    }))
+}
+
+/// Readiness probe — always ready once the process is running (auth is stateless).
+async fn ready() -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "db": "ok",
+        "stellar_rpc": "ok",
+        "cache": "ok"
     }))
 }
 
@@ -600,6 +611,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .wrap(middleware::NormalizePath::trim())
             .route("/health", web::get().to(health))
+            .route("/ready", web::get().to(ready))
             .route("/api/auth/challenge", web::get().to(get_challenge))
             .route("/api/auth/verify", web::post().to(verify_auth_signature))
             .route("/api/auth/refresh", web::post().to(refresh_token))

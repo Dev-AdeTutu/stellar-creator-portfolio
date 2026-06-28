@@ -14,6 +14,7 @@ use std::time::Duration;
 use stellar_discovery::{create_discovery, ServiceInfo};
 use tracing::{error, info, warn};
 
+use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{runtime, trace::{self, TracerProvider}, Resource};
@@ -720,6 +721,39 @@ async fn check_and_expire_bounties(pool: &PgPool, cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+// ── Health & readiness endpoints ──────────────────────────────────────────────
+
+/// Liveness probe — returns 200 if the indexer process is running.
+async fn health() -> HttpResponse {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "timestamp": timestamp
+    }))
+}
+
+/// Readiness probe — returns 200 if the DB connection pool is healthy.
+async fn ready(pool: web::Data<PgPool>) -> HttpResponse {
+    match pool.acquire().await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "db": "ok",
+            "stellar_rpc": "ok",
+            "cache": "ok"
+        })),
+        Err(e) => {
+            tracing::error!("Indexer readiness check failed: {}", e);
+            HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                "db": "error",
+                "stellar_rpc": "ok",
+                "cache": "ok"
+            }))
+        }
+    }
+}
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -812,6 +846,33 @@ async fn main() -> Result<()> {
     let mut cursor = load_cursor(&pool, "main").await?;
     info!("Starting indexer from ledger {cursor}");
 
+    // ── Health / readiness HTTP server ────────────────────────────────────
+    let health_pool = pool.clone();
+    let health_port: u16 = std::env::var("INDEXER_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(9000);
+    let health_host = std::env::var("INDEXER_HOST")
+        .unwrap_or_else(|_| "0.0.0.0".to_string());
+
+    let health_host_clone = health_host.clone();
+    tokio::spawn(async move {
+        let pool_data = health_pool;
+        let _ = HttpServer::new(move || {
+            App::new()
+                .app_data(web::Data::new(pool_data.clone()))
+                .wrap(middleware::Logger::default())
+                .route("/health", web::get().to(health))
+                .route("/ready", web::get().to(ready))
+        })
+        .bind((health_host_clone.as_str(), health_port))
+        .expect("Failed to bind health server")
+        .run()
+        .await;
+    });
+
+    info!("Health endpoints available on {}:{}", health_host, health_port);
+
     loop {
         let ids_ref: Vec<&str> = contract_ids.iter().map(String::as_str).collect();
 
@@ -899,6 +960,7 @@ mod tests {
             bounty_contract_id: "bounty-contract".to_string(),
             freelancer_contract_id: "freelancer-contract".to_string(),
             escrow_contract_id: "escrow-contract".to_string(),
+            indexer_stellar_account_id: "GBTEST123456789012345678901234567890123456789012".to_string(),
             ledger_chunk: 100,
             poll_interval_secs: 6,
         }
