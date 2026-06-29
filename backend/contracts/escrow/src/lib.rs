@@ -28,23 +28,49 @@ pub enum ReleaseCondition {
     Timelock(u64),
 }
 
-// â”€â”€ Fee constants (#344) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ---- Fee constants (#344/#722) --------------------------------------------------
 
-/// Platform fee in basis points (2.5 %).
-pub const PLATFORM_FEE_BPS: i128 = 250;
+/// Default platform fee in basis points (2.5 %).
+pub const DEFAULT_PLATFORM_FEE_BPS: i128 = 250;
 
-/// Maximum platform fee in token units (500 USDC-equivalent).
-pub const PLATFORM_FEE_CAP: i128 = 500;
+/// Default maximum platform fee in token units (500 USDC-equivalent).
+pub const DEFAULT_PLATFORM_FEE_CAP: i128 = 500;
 
 /// Dispute timeout: 30 days in ledger seconds (#731).
 /// After this window anyone can call `resolve_expired_dispute` for a 50/50 split.
 pub const DISPUTE_TIMEOUT_SECS: u64 = 30 * 24 * 3600;
 
-/// Compute the platform fee for a given gross amount.
-/// Fee = min(amount * 250 / 10_000, 500)
+/// Governance-configurable fee configuration stored on-chain (#722).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct FeeConfig {
+    pub fee_bps: i128,
+    pub fee_cap: i128,
+}
+
+/// Read the current fee config from storage, falling back to defaults.
+pub fn get_fee_config(env: &Env) -> FeeConfig {
+    env.storage()
+        .persistent()
+        .get::<DataKey, FeeConfig>(&DataKey::FeeConfig)
+        .unwrap_or(FeeConfig {
+            fee_bps: DEFAULT_PLATFORM_FEE_BPS,
+            fee_cap: DEFAULT_PLATFORM_FEE_CAP,
+        })
+}
+
+/// Compute the platform fee for a given gross amount using the current config.
+/// Fee = min(amount * fee_bps / 10_000, fee_cap)
 pub fn platform_fee(amount: i128) -> i128 {
-    let raw = amount * PLATFORM_FEE_BPS / 10_000;
-    if raw > PLATFORM_FEE_CAP { PLATFORM_FEE_CAP } else { raw }
+    // When called from storage-aware code use platform_fee_with_config instead.
+    let raw = amount * DEFAULT_PLATFORM_FEE_BPS / 10_000;
+    if raw > DEFAULT_PLATFORM_FEE_CAP { DEFAULT_PLATFORM_FEE_CAP } else { raw }
+}
+
+/// Compute platform fee using a specific FeeConfig (snapshot on deposit).
+pub fn platform_fee_with_config(amount: i128, config: &FeeConfig) -> i128 {
+    let raw = amount * config.fee_bps / 10_000;
+    if raw > config.fee_cap { config.fee_cap } else { raw }
 }
 
 /// Escrow Account
@@ -87,6 +113,9 @@ pub enum DataKey {
     MilestoneReleasedAmount(u64),
     DisputeExpiry(u64),
     DisputeSplit,
+    FeeConfig,
+    OracleStalenessSecs,
+    OracleAddress,
 }
 
 // ── Issue #631: Yield Farming for Unwithdrawn Escrow Funds ───────────────────
@@ -146,7 +175,8 @@ impl EscrowContract {
         let mut counter: u64 = env.storage().persistent().get::<Symbol, u64>(&counter_key).unwrap_or(0);
         counter += 1;
 
-        let fee = platform_fee(amount);
+        let fee_cfg = get_fee_config(&env);
+        let fee = platform_fee_with_config(amount, &fee_cfg);
         let net_amount = amount - fee;
 
         // Collect platform fee to admin if set, otherwise hold in contract
@@ -229,6 +259,26 @@ impl EscrowContract {
             "Release condition not met"
         );
 
+
+        // Issue #725: Oracle price freshness check before release
+        if let Some(oracle_addr) = env.storage().persistent().get::<DataKey, Address>(&DataKey::OracleAddress) {
+            let max_staleness = Self::get_oracle_staleness_secs(&env);
+            let price_data: soroban_sdk::Vec<soroban_sdk::Val> = env
+                .invoke_contract(
+                    &oracle_addr,
+                    &Symbol::new(&env, "get_price"),
+                    soroban_sdk::Vec::new(&env),
+                );
+            let timestamp: u64 = price_data
+                .get(1)
+                .expect("Oracle returned invalid price data")
+                .try_into()
+                .unwrap_or(0);
+            let age_secs = env.ledger().timestamp().saturating_sub(timestamp);
+            if age_secs > max_staleness {
+                panic!("Oracle price feed is stale");
+            }
+        }
         TokenClient::new(&env, &escrow.token)
             .transfer(&env.current_contract_address(), &escrow.payee, &escrow.amount);
 
@@ -962,6 +1012,67 @@ impl EscrowContract {
     }
 }
 
+
+    // ---- Issue #722: Governance-controlled platform fee update ----
+
+    /// Update the platform fee configuration. Only the governance multisig
+    /// (platform admin) may call this.
+    /// Emits a fee_updated event on successful change.
+    pub fn update_fee(env: Env, admin: Address, new_bps: i128, new_cap: i128) {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&Symbol::new(&env, "platform_admin"))
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "Only governance multisig can update fee");
+        assert!(new_bps >= 0, "Fee BPS must be non-negative");
+        assert!(new_bps <= 10_000, "Fee BPS must not exceed 10_000");
+        assert!(new_cap >= 0, "Fee cap must be non-negative");
+        env.storage().persistent().set(&DataKey::FeeConfig, &FeeConfig {
+            fee_bps: new_bps,
+            fee_cap: new_cap,
+        });
+        env.events().publish(
+            (symbol_short!("escrow"), symbol_short!("fee_upd")),
+            (new_bps, new_cap),
+        );
+    }
+
+    // ---- Issue #725: Oracle price freshness check ----
+
+    /// Return the oracle staleness threshold in seconds (governance-configurable).
+    /// Defaults to 3600 (1 hour).
+    pub fn get_oracle_staleness_secs(env: &Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get::<DataKey, u64>(&DataKey::OracleStalenessSecs)
+            .unwrap_or(3600)
+    }
+
+    /// Set the oracle staleness threshold. Only governance multisig may call this.
+    pub fn set_oracle_staleness_secs(env: Env, admin: Address, staleness_secs: u64) {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&Symbol::new(&env, "platform_admin"))
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "Only governance multisig can set staleness");
+        env.storage().persistent().set(&DataKey::OracleStalenessSecs, &staleness_secs);
+    }
+
+    /// Set the oracle contract address. Only governance multisig may call this.
+    pub fn set_oracle_address(env: Env, admin: Address, oracle: Address) {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get::<Symbol, Address>(&Symbol::new(&env, "platform_admin"))
+            .expect("Platform admin not set");
+        assert_eq!(admin, stored_admin, "Only governance multisig can set oracle");
+        env.storage().persistent().set(&DataKey::OracleAddress, &oracle);
+    }
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,6 +5,8 @@ import { Header } from '@/components/header';
 import { Footer } from '@/components/footer';
 import { CreatorCard } from '@/components/creator-card';
 import { disciplines } from '@/lib/creators-data';
+import { CreatorCard } from '@/components/cards/creator-card';
+import { creators, disciplines, getCreatorsByDiscipline } from '@/lib/services/creators-data';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/lib/trpc-client';
 import { CardSkeleton } from '@/components/skeletons/card-skeleton';

@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { ThemeProvider } from "next-themes";
 import { LayoutProvider } from "@/components/layout-provider";
 import { DataLoaderProvider } from "@/app/providers/DataLoaderProvider";
+import { WalletProvider } from "@/contexts/WalletContext";
 import "./globals.css";
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -20,9 +21,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Stellar Creators | Portfolio & Bounty Platform",
+  title: {
+    default: "Stellar Creator Portfolio — Discover Top Creative Talent",
+    template: "%s — Stellar Creator Portfolio",
+  },
   description:
-    "Discover world-class creators across UI/UX design, writing, and content creation. Showcase your work, collaborate, and participate in exciting bounties.",
+    "Discover, hire, and collaborate with exceptional creators across design, writing, marketing, product management, and 10+ more disciplines. Post bounties, find freelancers, and build amazing projects.",
   keywords: [
     "creators",
     "portfolio",
@@ -32,14 +36,24 @@ export const metadata: Metadata = {
     "content creation",
     "freelance",
     "showcase",
+    "stellar",
   ],
   generator: "v0.app",
   openGraph: {
-    title: "Stellar Creators | Portfolio & Bounty Platform",
+    title: "Stellar Creator Portfolio — Discover Top Creative Talent",
     description:
-      "Discover and collaborate with world-class creators across multiple disciplines.",
+      "Discover, hire, and collaborate with exceptional creators across design, writing, marketing, product management, and 10+ more disciplines.",
     type: "website",
+    siteName: "Stellar Creator Portfolio",
+    locale: "en_US",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Stellar Creator Portfolio — Discover Top Creative Talent",
+    description:
+      "Discover, hire, and collaborate with exceptional creators across design, writing, marketing, product management, and 10+ more disciplines.",
+  },
+  robots: { index: true, follow: true },
   icons: {
     icon: [
       {
@@ -73,9 +87,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange={false}
         >
-          <DataLoaderProvider>
-            <LayoutProvider>{children}</LayoutProvider>
-          </DataLoaderProvider>
+          <WalletProvider>
+            <DataLoaderProvider>
+              <LayoutProvider>{children}</LayoutProvider>
+            </DataLoaderProvider>
+          </WalletProvider>
           <Analytics />
         </ThemeProvider>
       </body>
