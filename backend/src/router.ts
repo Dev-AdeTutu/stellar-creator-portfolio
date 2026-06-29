@@ -150,6 +150,32 @@ export const appRouter = router({
 
   // Creators endpoints
   creators: router({
+    featured: publicProcedure
+      .input(z.object({ limit: z.number().int().positive().max(20).default(3) }))
+      .query(async ({ input }) => {
+        return await prisma.creator.findMany({
+          take: input.limit,
+          select: {
+            id: true,
+            name: true,
+            title: true,
+            discipline: true,
+            bio: true,
+            avatar: true,
+            coverImage: true,
+            tagline: true,
+            linkedIn: true,
+            twitter: true,
+            skills: true,
+            hourlyRate: true,
+            rating: true,
+            reviewCount: true,
+            stats: true,
+          },
+          orderBy: [{ rating: 'desc' }, { completedProjects: 'desc' }],
+        });
+      }),
+
     list: publicProcedure
       .input(
         z.object({
