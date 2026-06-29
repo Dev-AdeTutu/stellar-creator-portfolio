@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
-import { bounties } from '@/lib/creators-data'
+import type { Metadata } from 'next'
+import { bounties, formatBudget } from '@/lib/creators-data'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
 import { BountyMetaRow } from './bounty-meta-client'
@@ -8,6 +9,31 @@ import { MilestoneTrackerClient } from './milestone-tracker-client'
 import { BountyMilestoneProgress } from './bounty-milestone-progress'
 import { Badge } from '@/components/ui/badge'
 import { BountyShareButton } from './bounty-share-client'
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params
+  const bounty = bounties.find((b) => b.id === id)
+
+  if (!bounty) {
+    return { title: 'Bounty Not Found' }
+  }
+
+  const budgetStr = formatBudget(bounty.budget, bounty.currency)
+  return {
+    title: `${bounty.title} — ${budgetStr}`,
+    description: `${bounty.description.substring(0, 160)} Budget: ${budgetStr}. Category: ${bounty.category}.`,
+    openGraph: {
+      title: `${bounty.title} — ${budgetStr} | Stellar Creator Portfolio`,
+      description: bounty.description.substring(0, 200),
+
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${bounty.title} — ${budgetStr} | Stellar Creator Portfolio`,
+      description: bounty.description.substring(0, 200),
+    },
+  }
+}
 
 interface Props {
   params: Promise<{ id: string }>
